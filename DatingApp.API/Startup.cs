@@ -1,8 +1,10 @@
 ﻿using System;
 using System.Collections.Generic;
 using System.Linq;
+using System.Text;
 using System.Threading.Tasks;
 using DatingApp.API.Data;
+using Microsoft.AspNetCore.Authentication.JwtBearer;
 using Microsoft.AspNetCore.Builder;
 using Microsoft.AspNetCore.Hosting;
 using Microsoft.AspNetCore.HttpsPolicy;
@@ -12,7 +14,7 @@ using Microsoft.Extensions.Configuration;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Logging;
 using Microsoft.Extensions.Options;
-
+using Microsoft.IdentityModel.Tokens;
 
 namespace DatingApp.API
 {
@@ -25,7 +27,8 @@ namespace DatingApp.API
 
         public IConfiguration Configuration { get; }
 
-        // This method gets called by the runtime. Use this method to add services(middleware) to the container.
+        // This method gets called by the runtime. Use this method to inject services(middleware) to the container.
+        // The order at which services are added doesn't matter here. It matters in Configure.
         public void ConfigureServices(IServiceCollection services)
         {
             // to create migration files: dotnet ef migrations add InitialCreate
@@ -35,6 +38,29 @@ namespace DatingApp.API
             services.AddDbContext<DataContext>(x => x.UseSqlite(Configuration.GetConnectionString("DefaultConnection")));
             services.AddMvc().SetCompatibilityVersion(CompatibilityVersion.Version_2_2);
             services.AddCors();
+
+            // There is services.AddSingleton which reuses this service for all calls.
+            //    but, it may cause problems for concurrent requests.
+            // Then there is services.AddTransient which is suitable for lightweight apps
+            //    It creates a new instances every time.
+            // Lastly, there is services.AddScoped which is like the middleground.
+            //    It is like a singleton, but it only reuses for that scope, i.e., each HTTP request.
+            // Injects IAuthRepository into controllers which gets its implementation logic from the class itself.
+            services.AddScoped<IAuthRepository, AuthRepository>();
+
+            services.AddAuthentication(JwtBearerDefaults.AuthenticationScheme)
+                .AddJwtBearer(options => {
+                    options.TokenValidationParameters = new TokenValidationParameters()
+                    {   
+                        ValidateIssuerSigningKey = true,
+                        IssuerSigningKey = new SymmetricSecurityKey(Encoding.ASCII
+                            .GetBytes(Configuration.GetSection("AppSettings:Token").Value)),
+                        ValidateIssuer = false,
+                        ValidateAudience = false
+   
+                    };
+                });
+            
         }
 
         // This method gets called by the runtime. Use this method to configure the HTTP request pipeline.
@@ -53,6 +79,7 @@ namespace DatingApp.API
             // redirect requests to https
             //app.UseHttpsRedirection();
             app.UseCors(x => x.AllowAnyOrigin().AllowAnyHeader().AllowAnyMethod());
+            app.UseAuthentication();
             app.UseMvc();
         }
     }
